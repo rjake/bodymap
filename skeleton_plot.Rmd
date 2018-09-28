@@ -1,0 +1,225 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# setup
+```{r}
+library(tidyverse)
+library(sf)
+library(viridis)
+
+list.files(patter = "shp")
+round_custom <- function(x, unit){round(x/unit)*unit}
+
+get_shp <- st_read("bones_3.shp", stringsAsFactors = F)
+
+get_extent <- st_read("extent12x12.shp")
+
+get_zones <- 
+  st_read("icd10_regions.shp", stringsAsFactors = F) %>%
+  filter(!is.na(region) | grepl("^[c,l,t,p,r,u]|sac", part, ignore.case = T)) %>% 
+  #st_make_valid() %>%
+  st_buffer(0) %>% 
+  #filter(part %in% c("humerus", "scapula", "clavicle", "ulna", "radius")) %>% 
+  mutate(ord = row_number(), 
+         area_before = as.numeric(st_area(.)*.00001)) %>% 
+  filter(area_before > 200)
+            #ifelse(area > 5000, -0.1, -.2)) 
+
+get_zones_cropped <-
+  get_zones %>% 
+  #filter(area_before <= 10000) %>% 
+  st_buffer(-0.01) %>% 
+  #rbind(get_zones %>% filter(area_before > 10000) %>% st_buffer(-0.03)) %>% 
+  mutate(area_after = as.numeric(st_area(.)*.00001))
+              
+plot(get_zones$geometry, col = "black")
+plot(get_zones_cropped$geometry, col = "white", add = T)
+
+icd10 <- 
+  read.csv("icd10_codes.csv", stringsAsFactors = F, na.strings = "") %>%
+  select(code:side, -desc) %>% 
+  filter(!is.na(extra),
+         region != ".",
+         tolower(side) != "unspecified",
+         tolower(region) != "unspecified")
+```
+
+# gis wrangling
+```{r}
+  background <-
+    st_difference(st_union(get_extent), 
+                  st_union(get_zones)) %>% 
+    st_sf(a = 1, geom = .)
+  
+  get_points <-
+    get_zones_cropped %>%
+    st_sample(500) %>%
+    st_sf() %>% 
+    st_join(get_zones_cropped, join = st_within) %>% 
+    cbind(st_coordinates(.)) %>% 
+    mutate(row = row_number(),
+           X2 = round_custom(X, 0.08),
+           Y2 = round_custom(Y, 0.08))
+```
+
+# fake data
+```{r}
+set.seed(1234)
+
+fake_data <-
+  get_zones %>% 
+  distinct(part, region) %>% 
+  as.tibble() %>% 
+  mutate(months = list(month.abb)) %>% #, collapse = ",")) %>% 
+  unnest(months) %>%
+  mutate(months = factor(months, levels = month.abb)) %>% 
+  group_by(part,region) %>%
+  arrange(months) %>% 
+  rowwise() %>% 
+  mutate(male = abs(cumsum(sample(-5:10, 1, replace = T))),
+         female = abs(male + sample(-4:4, 1, replace = T))) %>% 
+  ungroup() %>% 
+  gather(key = gender, value = N, male:female) %>% 
+  left_join(get_zones_cropped)
+```
+
+# map canvas objects
+```{r}
+theme_custom <- 
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        text = element_text(size = 16),
+        panel.background = element_rect(fill = "white", color = "grey80"))
+
+map_background <- geom_sf(data = background, fill = "grey90") 
+
+map_bones <- geom_sf(data = get_shp, color = "black", fill = NA, size = 1.2)
+
+map_regions <- geom_sf(data = get_zones, color = "grey90", fill = NA, size = 2, alpha = .2)
+
+ggplot() +
+  map_background + map_regions + map_bones +
+  xlim(7, 8.7) + ylim(7.9, 10.2)
+
+```
+
+# best plot
+```{r}
+  ggplot() +
+    xlim(7, 8.8) + ylim(7.9, 10.2) +
+    geom_point(data = get_points, aes(X, Y), color = "blue", alpha = .2) +
+#    geom_point(data = get_points, aes(X, Y, color = region), alpha = .2) +
+#   scale_fill_viridis(option = "B", begin = .1, direction = -1, trans = "sqrt") +
+    map_regions +
+    map_background +
+    map_bones +
+    guides(color = F) +
+    theme_custom
+```
+
+
+#fake plots
+```{r}
+ggplot(fake_data) +
+  geom_bar(aes(months, N), stat = "identity") +
+  facet_grid(gender ~ part)
+
+ggplot() +
+  geom_sf(data = fake_data %>% 
+            filter(months %in% month.abb[1:6]), 
+          aes(fill = N), color = "white", alpha = .8) +
+  scale_fill_gradient(low = "black", high = "red")
+
+ggplot() +
+  xlim(7, 9) + ylim(6.5, 10.2) +
+  geom_sf(data = fake_data %>% 
+            filter(months %in% month.abb[1:6]), 
+          aes(fill = N), color = "white", alpha = .8) +
+  facet_grid(gender ~ months) +
+  scale_fill_gradient(low = "black", high = "red") +
+#  scale_fill_viridis(option = "C", begin = .2, end = .9, direction = 1) +
+  #map_regions +
+  map_background +
+#  map_bones +
+  guides(color = F) +
+  theme_custom
+```
+
+
+Note: trans = ...
+Either the name of a transformation object, or the object itself. Built-in transformations include "asn", "atanh", "boxcox", "exp", "identity", "log", "log10", "log1p", "log2", "logit", "probability", "probit", "reciprocal", "reverse" and "sqrt"
+
+
+
+
+# others
+```{r}
+  get_points_2 <-
+    get_shp %>%
+    filter(part %in% c("humerus", "C2", "C3","C4", "C5")) %>%
+    st_sample(size = area) %>%
+    st_sf() %>% 
+    st_intersection(get_zones) %>% 
+    cbind(st_coordinates(.)) %>% 
+    mutate(row = row_number(),
+           X2 = round_custom(X, 0.08),
+           Y2 = round_custom(Y, 0.08))
+  
+#  ggplot(get_points, aes(X2, Y2, color = part))+geom_point() + coord_fixed()
+  
+  get_points_n <-
+    get_points %>% select(X2, Y2) %>% mutate(geometry = NULL) %>% 
+    #rbind(get_points_2 %>% select(X2, Y2)%>% mutate(geometry = NULL)) %>% 
+    group_by(X2, Y2) %>% 
+    summarise(n = n()) %>% 
+    ungroup() %>%
+    st_as_sf(coords = c("X2", "Y2"), crs = 4326)
+```
+
+```{r}
+  ggplot() +
+    #xlim(6.5, 9.5) + ylim(0, 12) +
+    xlim(7, 8.7) + ylim(7.9, 10.2) +
+    geom_tile(data = get_points_n, aes(X2, Y2, fill = n), alpha = .8) +
+    geom_point(data = get_points, aes(X, Y, color = region), alpha = .2) +
+#    scale_fill_gradient(low = "black", high = "purple", trans = "sqrt", na.value = "grey85")
+    scale_fill_viridis(option = "B", begin = .1, direction = -1, trans = "sqrt") +
+    map_background +
+    geom_sf(data = get_shp, color = "black", fill = NA, size = 1) +
+    guides(color = F) +
+    theme_custom
+```
+
+
+
+
+
+```{r}
+ggplot() +
+  xlim(6,10) + ylim(5, 10) +
+  geom_point(data = get_points, aes(X, Y), color = "red", 
+             size = 1, alpha = .3) +
+  geom_sf(data = background) +
+  geom_sf(data = get_shp, color = "black", fill = NA, size = 1)
+
+
+ggplot() +
+  xlim(6,10) + ylim(5, 10) +
+  geom_count(data = get_points, 
+             aes(X2, Y2, color = (..prop..)), alpha = .5) +
+  scale_color_viridis(option = "C", #begin = .4, 
+                      direction = 1) +
+  geom_sf(data = background) +
+  geom_sf(data = get_shp, color = "black", fill = NA, size = 1)
+
+
+
+
+```

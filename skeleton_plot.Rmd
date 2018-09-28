@@ -16,12 +16,12 @@ library(viridis)
 list.files(patter = "shp")
 round_custom <- function(x, unit){round(x/unit)*unit}
 
-get_shp <- st_read("bones_3.shp", stringsAsFactors = F)
+get_shp <- st_read("shapefiles/bones_3.shp", stringsAsFactors = F)
 
-get_extent <- st_read("extent12x12.shp")
+get_extent <- st_read("shapefiles/extent12x12.shp")
 
 get_zones <- 
-  st_read("icd10_regions.shp", stringsAsFactors = F) %>%
+  st_read("shapefiles/icd10_regions.shp", stringsAsFactors = F) %>%
   filter(!is.na(region) | grepl("^[c,l,t,p,r,u]|sac", part, ignore.case = T)) %>% 
   #st_make_valid() %>%
   st_buffer(0) %>% 
@@ -42,7 +42,8 @@ plot(get_zones$geometry, col = "black")
 plot(get_zones_cropped$geometry, col = "white", add = T)
 
 icd10 <- 
-  read.csv("icd10_codes.csv", stringsAsFactors = F, na.strings = "") %>%
+  data.table::fread("https://raw.githubusercontent.com/rjake/ICD10_codes/master/icd10_codes.csv",
+                    na.strings = "") %>%
   select(code:side, -desc) %>% 
   filter(!is.na(extra),
          region != ".",

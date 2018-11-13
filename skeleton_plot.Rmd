@@ -164,11 +164,14 @@ Either the name of a transformation object, or the object itself. Built-in trans
 ```{r}
   get_points_2 <-
     get_shp %>%
-    filter(part %in% c("humerus", "C2", "C3","C4", "C5")) %>%
-    st_sample(size = area) %>%
+    filter(part_spec %in% c("humerus", "C2", "C3","C4", "C5")) %>%
+    #st_sample(size = area) %>%
     st_sf() %>% 
-    st_intersection(get_zones) %>% 
-    cbind(st_coordinates(.)) %>% 
+    #st_intersection(get_zones) %>% 
+    mutate(
+        X = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+        Y = map_dbl(geometry, ~st_centroid(.x)[[2]])
+    ) %>% 
     mutate(row = row_number(),
            X2 = round_custom(X, 0.08),
            Y2 = round_custom(Y, 0.08))
@@ -224,3 +227,45 @@ ggplot() +
 
 
 ```
+
+#ortho
+```{r}
+ortho_codes <-
+    data.table::fread("https://raw.githubusercontent.com/rjake/ICD10_codes/master/icd_10_ortho.csv",
+                    na.strings = "") %>%
+    rename_all(tolower)
+
+icd_count <-
+    ortho_codes %>% 
+    group_by(area, part_spec = part) %>% 
+    count() %>% 
+    ungroup() %>% 
+    filter(area != ".",
+           part_spec != ".",
+           !is.na(n))  
+
+final_bones <-
+    get_shp %>% 
+    inner_join(icd_count, by = "part_spec") %>% 
+    rbind(get_shp %>% 
+              inner_join(icd_count, by = c("part" = "part_spec"))) %>%
+    mutate(
+        X = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+        Y = map_dbl(geometry, ~st_centroid(.x)[[2]])
+    )
+    st_cast("POLYGON")
+ 
+ggplot() +
+ geom_sf(data = final_bones, 
+          aes(fill = n), 
+         color = "grey40", size = 0.2, 
+         alpha = .8) +
+ scale_fill_gradient(low = "grey90", high = "darkcyan") +
+ coord_sf(datum = NA) +
+ theme(panel.background = element_rect(fill = "white"),
+       panel.grid.major = element_blank(),
+       panel.grid.minor = element_blank(),
+       axis.text = element_blank())
+
+```
+

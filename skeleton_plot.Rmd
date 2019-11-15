@@ -13,7 +13,7 @@ library(tidyverse)
 library(sf)
 library(viridis)
 
-list.files(patter = "shp")
+list.files(pattern = "shp")
 round_custom <- function(x, unit){round(x/unit)*unit}
 
 get_shp <- st_read("shapefiles/bones_3.shp", stringsAsFactors = F)
@@ -76,7 +76,7 @@ set.seed(1234)
 fake_data <-
   get_zones %>% 
   distinct(part, region) %>% 
-  as.tibble() %>% 
+  as_tibble() %>% 
   mutate(months = list(month.abb)) %>% #, collapse = ",")) %>% 
   unnest(months) %>%
   mutate(months = factor(months, levels = month.abb)) %>% 
@@ -87,7 +87,9 @@ fake_data <-
          female = abs(male + sample(-4:4, 1, replace = T))) %>% 
   ungroup() %>% 
   gather(key = gender, value = N, male:female) %>% 
-  left_join(get_zones_cropped)
+  left_join(get_zones_cropped) %>% 
+  select(part:view, ord:area_after, geometry) %>% 
+  st_sf()
 ```
 
 # map canvas objects
@@ -146,6 +148,34 @@ ggplot() +
   facet_grid(gender ~ months) +
   scale_fill_gradient(low = "black", high = "red") +
 #  scale_fill_viridis(option = "C", begin = .2, end = .9, direction = 1) +
+  #map_regions +
+  map_background +
+#  map_bones +
+  guides(color = F) +
+  theme_custom
+
+
+part_by_month <-
+  fake_data %>% 
+  mutate(
+    x = coalesce(region, part),
+    y = as.numeric(as.factor(x)),
+    w = as.numeric(months)
+  ) %>% 
+  distinct(x,y,w, months) %>% 
+  group_by(x, months) %>% 
+  summarise(n = y * w) %>% 
+  group_by(x) %>% 
+  mutate(pct = n/sum(n)) %>% 
+  ungroup()
+  
+
+ggplot(part_by_month) +
+  geom_sf(aes(fill = pct), color = "white", alpha = .8) +
+  facet_wrap(.~months) +
+  xlim(7, 9.5) + ylim(8, 10.2) +
+  #scale_fill_gradient(low = "black", high = "red") +
+  scale_fill_viridis(option = "B", begin = 0, end = 0.9, direction = -1) +
   #map_regions +
   map_background +
 #  map_bones +

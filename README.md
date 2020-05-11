@@ -1,1 +1,1 @@
-# bodyMapR
+# bodymap
